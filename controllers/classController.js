@@ -1,0 +1,107 @@
+const admin = require("firebase-admin");
+
+
+exports.addClass = async (req, res) => {
+  const db = admin.firestore();
+  try {
+    const { subjectName, semester, department, section, startTime, endTime } =
+      req.body;
+    const teacherId = req.user.uid;
+    if (
+      !subjectName ||
+      !semester ||
+      !department ||
+      !section ||
+      !startTime ||
+      !endTime
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Missing required class fields." });
+    }
+    const newClass = {
+      teacherId,
+      subjectName,
+      semester,
+      department,
+      section,
+      startTime: admin.firestore.Timestamp.fromDate(new Date(startTime)),
+      endTime: admin.firestore.Timestamp.fromDate(new Date(endTime)),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await db.collection("classes").add(newClass);
+    await db
+      .collection("users")
+      .doc(teacherId)
+      .update({
+        assignedClasses: admin.firestore.FieldValue.arrayUnion(docRef.id),
+      });
+    res.status(201).json({ message: "Class added", classId: docRef.id });
+  } catch (error) {
+    console.error("Add class error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+exports.getTeacherClasses = async (req, res) => {
+  const db = admin.firestore();
+  try {
+    const teacherId = req.user.uid;
+    const classesSnap = await db
+      .collection("classes")
+      .where("teacherId", "==", teacherId)
+      .orderBy("startTime", "desc")
+      .get();
+    const classes = classesSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    res.json(classes);
+  } catch (error) {
+    console.error("Get teacher classes error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+exports.getStudentClasses = async (req, res) => {
+  const db = admin.firestore();
+  try {
+    const userDoc = await db.collection("users").doc(req.user.uid).get();
+    if (!userDoc.exists)
+      return res.status(404).json({ message: "User profile not found." });
+
+    const { department, section, batchYear } = userDoc.data();
+    if (!batchYear)
+      return res
+        .status(400)
+        .json({ message: "Student is not assigned to a batch." });
+
+    const batchDoc = await db
+      .collection("batches")
+      .doc(String(batchYear))
+      .get();
+    if (!batchDoc.exists)
+      return res
+        .status(404)
+        .json({ message: `Batch information for ${batchYear} not found.` });
+
+    const { currentSemester } = batchDoc.data();
+
+    const classesSnap = await db
+      .collection("classes")
+      .where("department", "==", department)
+      .where("semester", "==", currentSemester)
+      .where("section", "==", section)
+      .orderBy("startTime", "desc")
+      .get();
+
+    const classes = classesSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    res.json(classes);
+  } catch (error) {
+    console.error("Get student classes error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
