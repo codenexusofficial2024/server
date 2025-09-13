@@ -1,6 +1,5 @@
 const admin = require("firebase-admin");
 
-
 exports.getDashboard = async (req, res) => {
   const db = admin.firestore();
   try {
@@ -23,63 +22,109 @@ exports.getDashboard = async (req, res) => {
 exports.getPendingStudentApprovals = async (req, res) => {
   const db = admin.firestore();
   try {
-    const teacherDoc = await db.collection("users").doc(req.user.uid).get();
-    const teacherData = teacherDoc.data();
+    const teacherId = req.user.uid;
 
-    if (!teacherData || !teacherData.department) {
-      return res
-        .status(400)
-        .json({
-          message: "Teacher profile is incomplete or missing department info.",
-        });
+    const teacherClassesSnap = await db
+      .collection("classes")
+      .where("teacherId", "==", teacherId)
+      .get();
+    if (teacherClassesSnap.empty) {
+      return res.json([]);
     }
 
-    const studentsRef = db
-      .collection("users")
-      .where("role", "==", "student")
-      .where("approved", "==", false)
-      .where("department", "==", teacherData.department);
+    const uniqueGroups = new Set();
+    teacherClassesSnap.forEach((doc) => {
+      const classData = doc.data();
+      uniqueGroups.add(
+        `${classData.department}-${classData.semester}-${classData.section}`
+      );
+    });
 
-    const snapshot = await studentsRef.get();
-    const pendingStudents = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    res.json(pendingStudents);
+    const batchesSnap = await db.collection("batches").get();
+    const semesterToBatchMap = {};
+    batchesSnap.forEach((doc) => {
+      semesterToBatchMap[doc.data().currentSemester] = parseInt(doc.id);
+    });
+
+    const studentPromises = [];
+    for (const group of uniqueGroups) {
+      const [department, semester, section] = group.split("-");
+      const batchYear = semesterToBatchMap[semester];
+
+      if (!batchYear) continue;
+
+      const studentQuery = db
+        .collection("users")
+        .where("role", "==", "student")
+        .where("approved", "==", false)
+        .where("department", "==", department)
+        .where("batchYear", "==", batchYear)
+        .where("section", "==", section)
+        .get();
+      studentPromises.push(studentQuery);
+    }
+
+    const studentSnapshots = await Promise.all(studentPromises);
+    const pendingStudentsMap = new Map();
+    studentSnapshots.forEach((snapshot) => {
+      snapshot.forEach((doc) => {
+        pendingStudentsMap.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+    });
+
+    res.json(Array.from(pendingStudentsMap.values()));
   } catch (error) {
     console.error("Get pending approvals error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
 
-// Teacher approves a student.
+// Simplified approval function without AI/ML enrollment
 exports.approveStudent = async (req, res) => {
   const db = admin.firestore();
   try {
     const { studentId } = req.params;
     const teacherId = req.user.uid;
 
-    // UPDATED: Added security validation
-    // 1. Get the teacher's profile to find their department.
-    const teacherDoc = await db.collection("users").doc(teacherId).get();
-    const teacherData = teacherDoc.data();
-
-    // 2. Get the student's profile to find their department.
     const studentDoc = await db.collection("users").doc(studentId).get();
     if (!studentDoc.exists) {
       return res.status(404).json({ message: "Student not found." });
     }
     const studentData = studentDoc.data();
 
-    // 3. Compare the departments.
-    if (teacherData.department !== studentData.department) {
-      return res.status(403).json({ message: "Forbidden: You can only approve students from your own department." });
+    const batchDoc = await db
+      .collection("batches")
+      .doc(String(studentData.batchYear))
+      .get();
+    if (!batchDoc.exists) {
+      return res
+        .status(404)
+        .json({ message: "Student's batch year not found." });
+    }
+    const studentCurrentSemester = batchDoc.data().currentSemester;
+
+    const teacherClassesSnap = await db
+      .collection("classes")
+      .where("teacherId", "==", teacherId)
+      .where("department", "==", studentData.department)
+      .where("semester", "==", studentCurrentSemester)
+      .where("section", "==", studentData.section)
+      .limit(1)
+      .get();
+
+    if (teacherClassesSnap.empty) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "Forbidden: You are not assigned to teach this student's class.",
+        });
     }
 
-    // 4. If departments match, proceed with the approval.
+    // Simply approve the student in the database
     await db.collection("users").doc(studentId).update({ approved: true });
 
-    res.json({ message: "Student approved successfully" });
+    res.json({ message: "Student approved successfully." });
   } catch (error) {
     console.error("Approve student error:", error);
     res.status(500).json({ message: "Internal server error" });

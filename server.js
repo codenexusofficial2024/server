@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const admin = require("firebase-admin");
+const cors = require("cors"); // You already have this import
 
 // Route Imports
 const userRoutes = require("./routes/userRoutes");
@@ -11,9 +12,12 @@ const studentRoutes = require("./routes/studentRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
 
 const app = express();
+
+app.use(cors());
+
 app.use(express.json());
 
-// Firebase Initialization
+// --- FIREBASE INITIALIZATION ---
 const serviceAccount = {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
@@ -25,7 +29,8 @@ admin.initializeApp({
   databaseURL: `https://${process.env.FIREBASE_PROJECT_ID}.firebaseio.com`,
 });
 
-// API Routes
+// --- API ROUTES ---
+
 app.use("/api/users", userRoutes);
 app.use("/api/classes", classRoutes);
 app.use("/api/sessions", sessionRoutes);
@@ -33,6 +38,6 @@ app.use("/api/warnings", warningRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/teachers", teacherRoutes);
 
-// Server Port
+// --- SERVER PORT ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

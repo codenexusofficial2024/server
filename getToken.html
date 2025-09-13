@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Token Generator</title>
+</head>
+<body>
+    <h1>Firebase ID Token Generator</h1>
+    <p>Use this tool to get ID Tokens for Postman.</p>
+
+    <script>
+       const firebaseConfig = {
+  apiKey: "AIzaSyBHF8EqWZgoXSe988ljqMHsvFfrR206xPQ",
+  authDomain: "upasthiti-e3135.firebaseapp.com",
+  projectId: "upasthiti-e3135",
+  storageBucket: "upasthiti-e3135.firebasestorage.app",
+  messagingSenderId: "599200594627",
+  appId: "1:599200594627:web:e904cfda84e55ce78a8076",
+  measurementId: "G-39LV1KHW8C"
+};
+    </script>
+
+    <hr>
+    <input type="email" id="email" placeholder="Email" /><br/>
+    <input type="password" id="password" placeholder="Password" /><br/>
+    <button onclick="login()">Log In & Get Token</button>
+    <hr>
+    <h3>ID Token:</h3>
+    <textarea id="token" rows="10" cols="100" readonly></textarea>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+
+    <script>
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const tokenText = document.getElementById('token');
+            tokenText.value = 'Logging in...';
+
+            try {
+                const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                const idToken = await userCredential.user.getIdToken();
+                tokenText.value = idToken;
+            } catch (error) {
+                tokenText.value = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

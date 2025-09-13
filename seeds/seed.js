@@ -2,10 +2,9 @@ const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const teachers = require("./teacher");
 
-// Directly load your service account key file
+// Make sure this path to your key file is correct
 const serviceAccount = require("C:/Users/akash/Downloads/upasthiti-e3135-firebase-adminsdk-fbsvc-ac6533abe2.json");
 
-// Initialize the app with the loaded credentials
 initializeApp({
   credential: cert(serviceAccount),
 });
@@ -27,28 +26,24 @@ const getNextClassDateTime = (day, timeString) => {
   const [endHour, endMinute] = endTime.split(":").map(Number);
   const targetDay = dayMapping[day.toLowerCase()];
   if (targetDay === undefined) throw new Error(`Invalid day: ${day}`);
-
   const now = new Date();
   const today = now.getDay();
   let daysUntilTarget = targetDay - today;
   if (daysUntilTarget <= 0) daysUntilTarget += 7;
-
   const startDate = new Date();
   startDate.setDate(now.getDate() + daysUntilTarget);
   startDate.setHours(startHour, startMinute, 0, 0);
-
   const endDate = new Date();
   endDate.setDate(now.getDate() + daysUntilTarget);
   endDate.setHours(endHour, endMinute, 0, 0);
-
   return { startTime: startDate, endTime: endDate };
 };
 
 async function seedData() {
-  console.log("Starting to seed data with the Batch Model...");
+  console.log("Starting final data seed with official department codes...");
 
-  const collections = ["users", "classes", "batches", "warnings"];
-  for (const col of collections) {
+  const collectionsToClear = ["users", "classes", "batches", "warnings"];
+  for (const col of collectionsToClear) {
     const snapshot = await db.collection(col).get();
     for (const doc of snapshot.docs) {
       await doc.ref.delete();
@@ -68,20 +63,24 @@ async function seedData() {
   console.log("✅ Created 'batches' collection.");
 
   for (const teacherName of Object.keys(teachers)) {
+    const teacherInfo = teachers[teacherName];
+    const teacherUid = teacherInfo.uid;
+
     const teacherData = {
       name: teacherName,
       email: `${teacherName
         .toLowerCase()
         .replace(/\s|\./g, "")}@university.com`,
       role: "teacher",
-      department: "Computer Science",
+      department: "CSE", // Default department for teachers
     };
-    const teacherRef = await db.collection("users").add(teacherData);
+
+    await db.collection("users").doc(teacherUid).set(teacherData);
     console.log(
-      `✅ Created teacher ${teacherName} in 'users' collection with ID: ${teacherRef.id}`
+      `✅ Created teacher profile for ${teacherName} with correct UID: ${teacherUid}`
     );
 
-    const classList = teachers[teacherName];
+    const classList = teacherInfo.schedule;
     for (const c of classList) {
       const { startTime, endTime } = getNextClassDateTime(c.day, c.time);
       const classData = {
@@ -89,15 +88,17 @@ async function seedData() {
         department: c.dept,
         semester: c.sem,
         section: c.section,
-        teacherId: teacherRef.id,
+        teacherId: teacherUid,
         startTime: Timestamp.fromDate(startTime),
         endTime: Timestamp.fromDate(endTime),
       };
       await db.collection("classes").add(classData);
     }
-    console.log(`  -> Seeded ${classList.length} classes for ${teacherName}`);
+    console.log(
+      `  -> Seeded ${classList.length} classes for ${teacherName} with correct links.`
+    );
   }
-  console.log("🎉 All data seeded successfully!");
+  console.log("🎉 All data seeded successfully and correctly linked!");
 }
 
 seedData().catch(console.error);

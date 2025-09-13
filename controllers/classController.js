@@ -63,6 +63,71 @@ exports.getTeacherClasses = async (req, res) => {
   }
 };
 
+// ... the other functions (addClass, getTeacherClasses, etc.) are the same ...
+
+exports.getClassAttendanceSummary = async (req, res) => {
+  const db = admin.firestore();
+  try {
+    const { classId } = req.params;
+    const teacherId = req.user.uid;
+
+    const classRef = db.collection("classes").doc(classId);
+    const classDoc = await classRef.get();
+    if (!classDoc.exists) {
+      return res.status(404).json({ message: "Class not found." });
+    }
+    const classData = classDoc.data();
+    const attendanceMap = classData.attendance || {};
+
+    if (classData.teacherId !== teacherId) {
+      return res.status(403).json({ message: "Forbidden: You are not the teacher of this class." });
+    }
+
+    const batchesSnap = await db.collection("batches").where("currentSemester", "==", classData.semester).limit(1).get();
+    if (batchesSnap.empty) {
+        return res.status(404).json({ message: `No active batch found for semester ${classData.semester}`});
+    }
+    const batchYear = parseInt(batchesSnap.docs[0].id);
+
+    const studentsSnap = await db.collection("users")
+      .where("role", "==", "student")
+      .where("department", "==", classData.department)
+      .where("section", "==", classData.section)
+      .where("batchYear", "==", batchYear)
+      .get();
+
+    const summary = studentsSnap.docs.map(doc => {
+      const studentData = doc.data();
+      const studentId = doc.id;
+      
+      const attendanceRecord = attendanceMap[studentId];
+      
+      // UPDATED: Added a safety check for serverTimestamp
+      const markedAt = (attendanceRecord && attendanceRecord.serverTimestamp) 
+        ? attendanceRecord.serverTimestamp.toDate() 
+        : null;
+
+      return {
+        studentId: studentId,
+        name: studentData.name,
+        rollNo: studentData.rollNo,
+        attendanceStatus: attendanceRecord ? "Present" : "Absent",
+        markedAt: markedAt, // Use the safe variable
+        method: attendanceRecord ? attendanceRecord.method : null
+      };
+    });
+    
+    res.json({
+        totalStudents: summary.length,
+        presentCount: Object.keys(attendanceMap).length,
+        absentCount: summary.length - Object.keys(attendanceMap).length,
+        attendanceList: summary
+    });
+  } catch (error) {
+    console.error("Get class attendance summary error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
 exports.getStudentClasses = async (req, res) => {
   const db = admin.firestore();
   try {

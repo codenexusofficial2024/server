@@ -22,6 +22,15 @@ router.post(
   sessionController.markAttendance
 );
 
+
+// Route for a TEACHER to manually end an active attendance session
+router.patch(
+    "/end/:classId",
+    verifyToken,
+    authorizeRoles("teacher"),
+    sessionController.endSession
+);
+
 // Existing route for teacher to manually mark one student
 router.post(
   "/manual-mark/:classId",
