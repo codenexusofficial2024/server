@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudinary Upload Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 2em; line-height: 1.6; }
+        input, button { font-size: 1em; padding: 0.5em; margin: 0.5em 0; }
+        #status { margin-top: 1em; padding: 1em; border-radius: 5px; background-color: #f0f0f0; }
+        #result { word-wrap: break-word; }
+    </style>
+</head>
+<body>
+
+    <h1>Cloudinary Upload Test</h1>
+    <p>This page tests the direct "unsigned" upload to Cloudinary.</p>
+
+    <div>
+        <label for="rollNo">Student Roll Number:</label><br>
+        <input type="text" id="rollNo" placeholder="e.g., CSE2024_01">
+    </div>
+    
+    <div>
+        <label for="fileInput">Select Student Photo:</label><br>
+        <input type="file" id="fileInput" accept="image/png, image/jpeg">
+    </div>
+
+    <button onclick="uploadImage()">Upload to Cloudinary</button>
+
+    <div id="status">
+        <strong>Status:</strong> <span id="statusText">Waiting for upload...</span><br>
+        <strong>Resulting URL:</strong> <span id="result"></span>
+    </div>
+
+    <script>
+        async function uploadImage() {
+            // --- IMPORTANT: REPLACE THESE WITH YOUR CLOUDINARY DETAILS ---
+            const CLOUD_NAME = "dv2eeglu2"; // From your Cloudinary dashboard
+            const UPLOAD_PRESET = "upasthiti_student_profiles"; // The unsigned preset you created
+            // -----------------------------------------------------------
+
+            const fileInput = document.getElementById('fileInput');
+            const rollNo = document.getElementById('rollNo').value;
+            const statusText = document.getElementById('statusText');
+            const resultText = document.getElementById('result');
+
+            if (!fileInput.files[0]) {
+                statusText.innerText = "Error: Please select a file first.";
+                return;
+            }
+            if (!rollNo) {
+                statusText.innerText = "Error: Please enter a roll number.";
+                return;
+            }
+             if (!CLOUD_NAME || CLOUD_NAME === "YOUR_CLOUD_NAME" || !UPLOAD_PRESET || UPLOAD_PRESET === "YOUR_UPLOAD_PRESET") {
+                statusText.innerText = "Error: Please edit the HTML file and add your Cloudinary Cloud Name and Upload Preset.";
+                return;
+            }
+
+
+            statusText.innerText = "Uploading...";
+            resultText.innerText = "";
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            formData.append("upload_preset", UPLOAD_PRESET);
+            formData.append("public_id", rollNo); // This sets the filename to the roll number
+
+            const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
+
+            try {
+                const response = await fetch(cloudinaryUrl, {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Upload failed with status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                statusText.innerText = "Success!";
+                resultText.innerHTML = `<a href="${data.secure_url}" target="_blank">${data.secure_url}</a>`;
+
+            } catch (error) {
+                statusText.innerText = `Error: ${error.message}`;
+                console.error("Error uploading to Cloudinary:", error);
+            }
+        }
+    </script>
+
+</body>
+</html>

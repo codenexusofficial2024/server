@@ -47,14 +47,24 @@ exports.activateQR = async (req, res) => {
     const qrCodeDataUrl = await generateQRCode(uuid);
     const expiryTime = new Date(endTime.getTime() + 30 * 60000);
 
-    await classRef.update({
+    // --- MODIFIED LOGIC STARTS HERE ---
+    const updatePayload = {
       sessionActive: true,
       sessionUUID: uuid,
       sessionActivatedAt: admin.firestore.FieldValue.serverTimestamp(),
       sessionExpiresAt: admin.firestore.Timestamp.fromDate(expiryTime),
       teacherLocation: teacherLocation,
-      attendance: {},
-    });
+    };
+
+    // Conditionally reset attendance ONLY if no one has been marked present yet.
+    const currentAttendance = classData.attendance || {};
+    if (Object.keys(currentAttendance).length === 0) {
+      updatePayload.attendance = {};
+    }
+    // --- MODIFIED LOGIC ENDS HERE ---
+
+    await classRef.update(updatePayload);
+
     res.json({ message: "QR activated", qrCode: qrCodeDataUrl, uuid });
   } catch (error) {
     console.error("Activate QR error:", error);
@@ -107,6 +117,37 @@ exports.markAttendance = async (req, res) => {
     res.json({ message: "Attendance marked successfully." });
   } catch (error) {
     console.error("Mark attendance error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+// To end session manually
+exports.endSession = async (req, res) => {
+  const db = admin.firestore();
+  try {
+    const { classId } = req.params;
+    const teacherId = req.user.uid;
+
+    const classRef = db.collection("classes").doc(classId);
+    const classDoc = await classRef.get();
+
+    if (!classDoc.exists) {
+      return res.status(404).json({ message: "Class not found." });
+    }
+    const classData = classDoc.data();
+
+    // Security Check: Only the assigned teacher can end the session
+    if (classData.teacherId !== teacherId) {
+      return res.status(403).json({ message: "Forbidden: You are not the teacher of this class." });
+    }
+
+    // End the session by setting sessionActive to false
+    await classRef.update({
+      sessionActive: false
+    });
+
+    res.json({ message: "Attendance session has been manually ended." });
+  } catch (error) {
+    console.error("End session error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -165,11 +206,13 @@ exports.manualMarkSingleStudent = async (req, res) => {
  * This is the function that reads the JSON response from your AIML model.
  * It expects a JSON body like: { "recognizedStudents": [{ "rollNo": "...", "timestamp": "..." }] }
  */
+// This function receives the results from the frontend and marks attendance.
+// It NO LONGER calls the AI model itself.
 exports.markAttendanceByFace = async (req, res) => {
   const db = admin.firestore();
   try {
     const { classId } = req.params;
-    const { recognizedStudents } = req.body;
+    const { recognizedStudents } = req.body; // Expects results from frontend
 
     if (!recognizedStudents || !Array.isArray(recognizedStudents)) {
       return res
@@ -192,30 +235,14 @@ exports.markAttendanceByFace = async (req, res) => {
           message: "Forbidden: You are not the teacher for this class.",
         });
 
-    const startTime = classData.startTime.toDate();
-    const endTime = classData.endTime.toDate();
-    const now = new Date();
-    const classDurationMs = endTime - startTime;
-    const timeElapsedMs = now - startTime;
-    const expiryTime = new Date(endTime.getTime() + 30 * 60000);
-
-    if (timeElapsedMs < classDurationMs / 2) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Cannot start attendance before 50% of class time has passed.",
-        });
-    }
-    if (now > expiryTime) {
-      return res
-        .status(403)
-        .json({ message: "The attendance session has expired." });
-    }
-
     const batch = db.batch();
     let successfulMarks = 0;
     let notFoundRolls = [];
+
+    // Initialize attendance field if it doesn't exist
+    if (!classData.attendance) {
+        batch.update(classRef, { attendance: {} });
+    }
 
     for (const student of recognizedStudents) {
       const { rollNo, timestamp } = student;
@@ -248,7 +275,7 @@ exports.markAttendanceByFace = async (req, res) => {
 
     await batch.commit();
     res.json({
-      message: `Attendance marked for ${successfulMarks} of ${recognizedStudents.length} students via face recognition.`,
+      message: `Attendance marked for ${successfulMarks} students via face recognition.`,
       notFoundRollNumbers: notFoundRolls,
     });
   } catch (error) {
